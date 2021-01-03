@@ -1,0 +1,19 @@
+#/bin/bash
+test=${test:-sb_db_rec_field.awk}
+SB_DB_REC_FIELD_AWK=./sb_db_rec_field.awk
+case "$test" in
+sb_db_rec_field.awk)
+  RECORD=\
+'/mnt/_save+Tiny_Puduan+PreAlpha11+4+puppy_tascii+sfs__5e0ed puppy_tascii.sfs on /mnt/_save+Tiny_Puduan+PreAlpha11+4+puppy_tascii+sfs__5e0ed squashfs /initrd/mnt/dev_save/Tiny_Puduan/PreAlpha11.4/puppy_tascii.sfs'
+  FILE_PATH="$(echo "$RECORD" | awk -v FIELD_NUM=6 -f "$SB_DB_REC_FIELD_AWK")"
+  Mount_Point="$(echo "$RECORD" | awk -v FIELD_NUM=1 -f "$SB_DB_REC_FIELD_AWK")"
+  PDRV_MNT="$(echo "$RECORD" | awk -v FIELD_NUM=7 -f "$SB_DB_REC_FIELD_AWK")"
+  PDRV_FILE="$(echo "$RECORD" | awk -v FIELD_NUM=8 -f "$SB_DB_REC_FIELD_AWK")"
+  PDRV_UUID="$(echo "$RECORD" | awk -v FIELD_NUM=9 -f "$SB_DB_REC_FIELD_AWK")"
+  echo "FILE_PATH=$FILE_PATH"
+  echo "Mount_Point=$Mount_Point"
+  echo "PDRV_MNT=$PDRV_MNT"
+  echo "PDRV_FILE=$PDRV_FILE"
+  echo "PDRV_UUID=$PDRV_UUID"
+  ;;
+esac
