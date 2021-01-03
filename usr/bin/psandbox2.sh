@@ -8,38 +8,72 @@
 #
 # All options below were added by s243a:
 #
+# f, --input-file
+#    read layer paths from a file rather than reading existing layers
 # -o, --output-file 
 #    Just write layer paths to an output file but don't mount the sandbox. 
 # --no-exit
-#   if an output file is specified (i.e. -o or --output-file) layer paths are just written to a file and the program exits unless the no-exit flag is specified.
-# f, --input-file
-#   read layer paths from a file rather than reading existing layers
-# m,--pmedia
-#   determines pupmodes. Refer to puppy boot parmaters
+#    if an output file is specified (i.e. -o or --output-file) layer paths are just written to a file and the program exits unless the no-exit flag is specified.
+# -p|--env-prefix
+#    TODO: Not yet defined. See if there is any old code related to this. 
+#    enviornental variable prefix
+# -m,--pmedia
+#    Used to emulate the pmedia boot parmater. This helps to determine the pup mode. 
 # d, --pdrv
-#   this is the particiaion where the puppy files are located. The default is /mnt/home
+#    this is the particiaion where the puppy files are located. The default is /mnt/home
 # s, psubdir
-#   this is the sub directory where the puppy files are located
-# c, --clear-env
-#   deletes enviornental variabls
-# --env-prefix
-#   enviornental variable prefix
-# b --boot-config
-#   path to boot config (e.g. /etc/rc.d/BOOTCONFIG
-# --disto-specs
-#   path to distro specs (e.g. /etc/DISTRO_SPECS; e.g. /initrd/distro-specs)
-# L, --layer
+#    this is the sub directory where the puppy files are located
+#  --maybe-psubdir
+#    get the layers from a given sub directory if no layers were found via the previous options.  
+#  --distro-specs
+#    path to distro specs (e.g. /etc/DISTRO_SPECS; e.g. /initrd/distro-specs)
+#    this file is sourced to provide information about the pup layers. 
+# c, --clear-env (Not yet implemented, but option processed)
+#    deletes enviornental variabls
+# b --boot-config (Not Yet Implemented, but option processed)
+#    path to boot config (e.g. /etc/rc.d/BOOTCONFIG). This file provides information about extra sfs layers to add. If this option apears after psubdir then the layring will be like a standard puppy. 
+#   --union-record (Not yet implemented, but option processed)
+#   Specifies the main pup layers but file name only rather than the full path to the sfs. This is usually defined in boot-config. 
+#  --aufs
+#   With this option the currently mounted layers are used as part of the sandbox. 
+#  --maybe-aufs
+#   Same as aufs, but is only used if the layers aren't already selected by a previous option. 
+# -t|--tmpfs
+#   Use ram as the top layer. If no path is specified then tmpfs will be mounted. 
+#  -r|--root
+#   Specifies the parrent directory of the chroot folder. This parent directory is called SANDBOX_ROOT. By default this is /mnt/sb. See the option --fake-root, for the actual chroot folder. 
+#  -f|-n|--fake-root|--new-root
+#   Specifies the chroot folder. /mnt/sb/fakeroot. If this is occupied by a previous sandbox then the default is /mnt/sb/fakeroot.sandboxID Relative paths are assumed to be a subdirectory of SANDBOX_ROOT (see the --root option above). Currently, all these options do the same thing but thought behind the --new-root option is that we might try moving a mount point. The effect of this is to hide what is underneath the old mount point. This is simmilar to a chroot but would impact the whole system! 
+#    This is a risky/experimental option. The idea
+#  --pupmode
+#   This option is used to emulate a pupmode. The default pupmode is "2" which emulates a full install. 
+# --layer
+#   Specify a layer of the layered file system. Layers are added as per the order that they apear as arguments. 
 #   a subgke kater
+# -l|--logfile
+#   Standard error and standard output will copied to this file while the logger is on. 
+# -t|--trace
+#   Uses the set -x option in the areas of code where the logger is on. 
+# -a|--copy-Xauth
+#   Copy the Xauthority into the chroot. 
+#  -u|--bind-X11-sockets
+#   Bind the X11 sockets into the chroot. The default folder to bind is /tmp/.X11-unix
+#  -r|--copy-resolv_conf
+#   Copy /etc/resolve.conf into the chroot.
 #  e, --extra-sfs
 #   a list of extra sfs files (space seperated)
 #  u, --union-record
 # --xterm
 # --sandbox
 # -initrd
-# --save
-# --noexit
-# --psave
-# --pupmode
+# --rev-bind 
+#  Bind one or more folders from the sandbox into the main system
+#  --before-chroot
+#  Enter an arbitrary command immediatly before entering the chroot folder (e.g. start a samba server)
+#  --bind
+#  Bind arbitrary directories from the host system into the chroot. For safety reasons binds are not recursive but the option for recursive binds may be implemented at a later date. 
+# 
+
 
 #I thought some assoitive arrays might be useful but I'm not using them yet. 
 #declare -A KEYs_by_MNT_PT
@@ -848,16 +882,6 @@ while [ $# -gt 0 ]; do
   --maybe-aufs)
     [  -z "$items" ] && items+="$(get_items)"
     shift 1; ;;
-   -t|--tmpfs)
-    if [ $# -gt 1 ] && [[ ! "$2" = --* ]] && [ ! -z "$2" ]; then
-      SANDBOX_TMPFS="$2"
-      set_sandbox_tmpfs
-      shift 2
-    else
-      SANDBOX_TMPFS="" #Later we use [ -z ${SANDBOX_TMPFS+x} ] to check that this is set
-      set_sandbox_tmpfs
-      shift 1
-    fi; ;;   
     -r|--root)
     if [ $# -gt 1 ] && [[ ! "$2" = --* ]] && [ ! -z "$2" ]; then
       SANDBOX_ROOT="$2"
@@ -996,7 +1020,7 @@ while [ $# -gt 0 ]; do
     ;;
 
   --layer)
-    RW_LAYER=$2
+    #RW_LAYER=$2
     process_layer layer $2
     shift 2
     ;;
