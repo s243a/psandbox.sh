@@ -179,6 +179,43 @@ function set_pdrv(){
  	   fi
 	fi
 }
+
+function find_real_pdrv(){
+	#!!!! New find PDRV code
+	if [ ! -z "$SANDBOX_ROOT" ]; then
+	  DEV_SAVE=$SANDBOX_ROOT/dev_save
+	  mkdir -p "$DEV_SAVE"
+	  if [ -z "$PDRV" ]; then
+	    if [[ "$SANDBOX_IMG" = *"/mnt/"* ]]; then
+	      PSUBDIR_rw=${SANDBOX_IMG#/mnt/*/}
+	      PDRV_rw=${SANDBOX_IMG%"/$PSUBDIR_rw"}
+	      PDRV_real=$(cat /proc/mounts | grep $(realpath $PDRV_rw) | cut -d " " -f1)
+	          PSUBDIR_i=${PSUBDIR}
+	          PDRV_i=${PDRV}
+	          PDRV_real_i=${PDRV_real}      
+	      while (true); do
+	 
+	          if [[ PDRV_real_i = /dev/loop* ]]; then
+	            PDRV_real_i=$(losetup-FULL -a | grep "$(basename PDRV_real)")
+	            PDRV_real_i=${PDRV_real#*(}
+	            PDRV_real_i=${PDRV_real%)}
+	            PSUBDIR_i=${PDRV_real_i#/mnt/*/}
+	            PSUBDIR_rw=$PSUBDIR_i/$PSUBDIR_rw
+	            PDRV_real_i=${SANDBOX_IMG%"/$PSUBDIR_i"}
+	            PDRV_real_i=$(cat /proc/mounts | grep $(realpath $PDRV_real_i) | cut -d " " -f1)
+	          elif [[ PDRV_real_i = /dev/* ]]; then
+	            PDRV_real=$(blkid | grep $PDRV_real)
+	            break
+	          else
+	            echo "could not identify PDRV_real"
+	            break
+	          fi
+	          
+	      done
+	    fi
+	  fi
+	fi
+}
 function get_items(){
     local out
     OUTFILE=/tmp/get_items_out
@@ -376,8 +413,8 @@ safe_delete(){
     PATH_TO_DEL="$(realpath -m $1)"
     [ -d "$PATH_TO_DEL" ] && "PATH_TO_DEL=$PATH_TO_DEL/"
     for a_rule_key in "${!del_rules_filter[@]}"; do
-      rule_i="${a_rull_key[$a_rule_key]}"
-      if [ ! -z "$(echo $PATH_TO_DEL | grep "$rule_i")" ] ||
+      rule_i="${del_rules_filter[$a_rule_key]}"
+      if [ ! -z "$(echo $PATH_TO_DEL | grep -E "$rule_i")" ] ||
          [[ "$PATH_TO_DEL" = $rule_i ]]; then
         action="${del_rules_action[$a_rule_key]}"
         case $action in
@@ -423,8 +460,8 @@ safe_umount(){
     [ -d "$PATH_TO_UMOUNT" ] && PATH_TO_UMOUNT="$PATH_TO_UMOUNT/" #TODO, this should always be true so add error if it is not.
  
     for a_rule_key in "${!umount_rules_filter[@]}"; do
-      rule_i="${a_rull_key[$a_rule_key]}"
-      if [ ! -z "$(echo $1 | grep "$rule_i")" ] ||
+      rule_i="${umount_rules_filter[$a_rule_key]}"
+      if [ ! -z "$(echo $1 | grep -E "$rule_i")" ] ||
         [[ "$PATH_TO_UMOUNT" = $rule_i ]]; then
         action="${umount_rules_action[$a_rule_key]}"
         case $action in
@@ -467,6 +504,8 @@ umountall() {
   {
   log start
   set -x
+  
+  FAKEROOT="$(echo "$FAKEROOT" | sed -r 's#/$##g')"
   #R_FR=$(realpath -m "$FAKEROOT")
   #[ ${#R_FR} -lt 2 ] && exit
   safe_umount $SANDBOX_TMPFS
@@ -700,29 +739,28 @@ function set_fakeroot(){
     unset CLEANUP_SANDBOX_ROOT
     # if SANDBOX_ROOT is set to null then set it in this function
     # if FAKEROOT is null then this implies "/"
-    if [ -z ${FAKEROOT+x} ] && [ $FAKEROOT_SET = false ]; then 
+    if [ -z ${FAKEROOT+x} ]; then # && [ $FAKEROOT_SET != true ] 
+      FAKEROOT_SET=false
       FAKEROOT=fakeroot
-      CLEANUP_SANDBOX_ROOT=yes
+      CLEANUP_SANDBOX_ROOT=yes #TODO: figure out why I set this here. 
+      if [ -z "${SANDBOX_ROOT}" ] ; then
+        SANDBOX_ROOT=/mnt/sb
+      fi
     fi
     if [ ! -z ${SANDBOX_ROOT+x} ] || [ ${#FAKEROOT} -gt 1 ]; then 
-       
-      if [ "${CLEANUP_SANDBOX_ROOT}" = yes ]; then
-        SANDBOX_ROOT=/mnt/sb
-      else
-        FAKEROOT_SET
-      fi    
-      
  
+      #When  $FAKEROOT_SET = false then     
+      #SANDBOX_ROOT will not be set yet unless suplied by an option or if FAKEROOT isn't specified
       if [ ${#SANDBOX_ROOT} -gt 1 ] && [ $FAKEROOT_SET = false ]; then
         FAKEROOT=$SANDBOX_ROOT/$FAKEROOT
         FAKEROOT_SET=true
       elif [ ! -z ${FAKEROOT+x} ]; then
-        FAKEROOT_SET=true
+        FAKEROOT_SET=true #A empty value for FAKEROOT implies we will mount over "/". This is experimental! Warnings will be given!
       fi
        FAKEROOT_dir="${FAKEROOT%/*}"
       [ -z "${SANDBOX_ROOT}" ] && SANDBOX_ROOT=${FAKEROOT_dir}
       if grep -q $FAKEROOT /proc/mounts; then
-        if [ ! "$SANDBOX_ROOT" = /mnt/sb ]; then
+        if [ ! "$SANDBOX_ROOT" = /mnt/sb ]; then #TODO: we might also want to rename root under other circumstances. 
             log stop
             dialog --backtitle "rename root" --title "already mounted" \
             --extra-button --extra-label "Rename" --ok-label "Keep" \
@@ -777,11 +815,11 @@ function set_fakeroot(){
     fi
     if [ $CLEANUP_SANDBOX_ROOT = yes ]; then
       if [ ${#del_rules_filter} -eq 0 ]; then
-         del_rules_filter+=( $SANDBOX_ROOT"/*" )
+         del_rules_filter+=( $SANDBOX_ROOT"/.+" )
          del_rules_filter+=( POLICY_DELETE )
       fi
       if [ ${#umount_rules_filter} -eq 0 ]; then
-         umount_rules_filter+=( $SANDBOX_ROOT"/*" )
+         umount_rules_filter+=( $SANDBOX_ROOT"/.+"  )
          umount_rules_filter+=( POLICY_UMOUNT )
       fi    
     fi
@@ -1242,11 +1280,20 @@ items="$(echo "$items" | sed -n '/^\s*\(on\)\?\s*$/! p' | sed -n '/^Error: Expec
 
 #!!!!Fake root now set with set_fakeroot() (above) for old code see psandbox_removed.sh
 
-if [ -z ${SANDBOX_ROOT+x} ] && [ -z ${FAKEROOT+x} ]; then
-  SANDBOX_ROOT="" #Later this will change to SANDBOX_ROOT=/mnt/sb
+
+if [ -z ${FAKEROOT+x} ]; then # && [ -z ${SANDBOX_ROOT+x} ] 
+  #SANDBOX_ROOT="" #Later this will change to SANDBOX_ROOT=/mnt/sb
   set_fakeroot
   [ -z $SANDBOX_IMG ] && set_sandbox_img
 fi 
+if [ ${#FAKEROOT} -le 1 ]; then
+  echo "[ -z ${SANDBOX_ROOT+x} ] && [ -z ${FAKEROOT+x} ]"
+  echo "SANDBOX_ROOT=$SANDBOX_ROOT"
+  echo "FAKEROOT=$FAKEROOT"
+  log stop
+  read -p "Press enter to continue"
+  log start
+fi
 
 # umount all if we are accidentally killed
 #trap 'umountall' 1
@@ -1347,6 +1394,8 @@ if [ ! -z "$savebranch"  ]; then
         else
           mount -o loop "$savebranch" $SANDBOX_IMG
         fi
+  else
+    SANDBOX_IMG="$savebranch" 
   fi
 fi
 
@@ -1354,60 +1403,16 @@ fi
 #!!!! New code. Flag TMPFS for creation, if in suitable pumode.
 #!!!! TMPFS may already be flagged for creation if suitable option is provided. 
   if [ ! -z "$PUPMODE" ]; then
-    if [ $PUPMODE  -ne 5 ] && [ $PUPMODE  -ne 5 ] && [ $PUPMODE  -ne 13 ] && [ $PUPMODE  -ne 77 ]; then
+    if [ $PUPMODE  -eq 5 ] && [ $PUPMODE  -eq 5 ] && [ $PUPMODE  -eq 13 ] && [ $PUPMODE  -eq 77 ]; then
       if  [ -z ${SANDBOX_TMPFS+x} ]; then
         SANDBOX_TMPFS="" #Later we use [ -z ${SANDBOX_TMPFS+x} ] to check that this is set
       fi
     fi
   fi
 
-#TODO:
-#function real_dirname(){
-#	local file_dir_or_mnt_path=$(realpath -m "$1")
-#	local r_dir="$(file_dir_or_mnt_path#/mnt/*/)"
-#	local r_drive=$(file_dir_or_mnt_path%"/$PSUBDIR_rw")
- #     while (true); do
-#        r_dir_i="$r_dir"	
-#        r_drive_i="$r_drive"
-#        if [[ r_drive_ = /dev/loop* ]]; then
- #           PDRV_real_i=$(losetup-FULL -a | grep "$(basename PDRV_real)")          
 
-
+find_real_pdrv
 #!!!! New find PDRV code
-if [ ! -z "$SANDBOX_ROOT" ]; then
-  DEV_SAVE=$SANDBOX_ROOT/dev_save
-  mkdir -p "$DEV_SAVE"
-  if [ -z "$PDRV" ]; then
-    if [[ "$SANDBOX_IMG" = *"/mnt/"* ]]; then
-      PSUBDIR_rw=${SANDBOX_IMG#/mnt/*/}
-      PDRV_rw=${SANDBOX_IMG%"/$PSUBDIR_rw"}
-      PDRV_real=$(cat /proc/mounts | grep $(realpath $PDRV_rw) | cut -d " " -f1)
-          PSUBDIR_i=${PSUBDIR}
-          PDRV_i=${PDRV}
-          PDRV_real_i=${PDRV_real}      
-      while (true); do
- 
-          if [[ PDRV_real_i = /dev/loop* ]]; then
-            PDRV_real_i=$(losetup-FULL -a | grep "$(basename PDRV_real)")
-            PDRV_real_i=${PDRV_real#*(}
-            PDRV_real_i=${PDRV_real%)}
-            PSUBDIR_i=${PDRV_real_i#/mnt/*/}
-            PSUBDIR_rw=$PSUBDIR_i/$PSUBDIR_rw
-            PDRV_real_i=${SANDBOX_IMG%"/$PSUBDIR_i"}
-            PDRV_real_i=$(cat /proc/mounts | grep $(realpath $PDRV_real_i) | cut -d " " -f1)
-          elif [[ PDRV_real_i = /dev/* ]]; then
-            PDRV_real=$(blkid | grep $PDRV_real)
-            break
-          else
-            echo "could not identify PDRV_real"
-            break
-          fi
-          
-      done
-    fi
-  fi
-fi
-
 
 
 [ -z $PDRV ] && PDRV=/mnt/home
@@ -1415,15 +1420,6 @@ if [ -z  "$SANDBOX_IMG" ] || [ ! -z ${SANDBOX_TMPFS+x} ]; then
   if [ -z "$SANDBOX_TMPFS" ] ; then
     #SANDBOX_TMPFS=$SANDBOX_ROOT/sandbox
     set_sandbox_tmpfs
-    
-    #if grep -q $SANDBOX_TMPFS /proc/mounts; then
-    #  #FAKEROOT=$(mktemp -d -p $SANDBOX_ROOT ${FAKEROOT##*/}.XXXXXXX)
-    #  #SANDBOX_ID=".${FAKEROOT##*.}"
-    #  SANDBOX_TMPFS=$SANDBOX_ROOT/${SANDBOX_ID/}${SANDBOX_ID}
-    #  mkdir -p -f SANDBOX_TMPFS
-    #  mount -t tmpfs none $SANDBOX_TMPFS; #We could exit if this fails but we don't need to becuase we can still write to SANDBOX_TMPFS even if it isn't tmpfs.
-    #  rmdir $FAKEROOT
-    #fi
   fi
   
   if [ ! -z "${SANDBOX_TMPFS}" ] && [ -z "$(grep -q "${SANDBOX_TMPFS}" /proc/mounts)" ]; then
@@ -1666,15 +1662,17 @@ if [ ${#FAKEROOT} -gt 1 ] && ! grep -q $FAKEROOT /proc/mounts; then
             unshare -f -p --mount-proc=$FAKEROOT/proc chroot $FAKEROOT
         else
             export FAKEROOT="$FAKEROOT"
+            sync
            (
             echo "chroot $FAKEROOT"
-             bash < /dev/tty > /dev/tty 2>/dev/tty
-            chroot $FAKEROOT
+             #bash < /dev/tty > /dev/tty 2>/dev/tty
+             chroot "$FAKEROOT" < /dev/tty > /dev/tty 2>/dev/tty
+            #chroot $FAKEROOT
             )
         fi
         log start
         # 8. done - clean up everything 
-       #umountall
+       umountall
         echo "Leaving sandbox."  
     
 elif [ "${FAKEROOT:-/}" = "/" ]; then
