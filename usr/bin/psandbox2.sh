@@ -375,24 +375,28 @@ function log(){
       #exec &1> >(tee -a "$LOGFILE")
       #exec &2> >(tee -a "$LOGFILE")
       [ ! -f "$LOGFILE" ] && touch "$LOGFILE"
-      exec &> >(tee -a "$LOGFILE")
+      #exec &> >(tee -a "$LOGFILE")
       ;;
     start)
       [ "$TRACE" = true ] && SET_X=true
       #exec &1> >(tee -a "$LOGFILE")
       #exec &2> >(tee -a "$LOGFILE") 
-      exec 6>&1           # Link file descriptor #6 with stdout.
-      exec 7>&2      
-      #exec &> >(tee -a "$LOGFILE") 
+#      exec 6>&1           # Link file descriptor #6 with stdout.
+#      exec 7>&2      
+      exec 1>&6           # Link file descriptor #6 with stdout.
+      exec 2>&7    
+      exec &> >(tee -a "$LOGFILE") 
       ;;
     stop)
       #https://stackoverflow.com/questions/21106465/restoring-stdout-and-stderr-to-default-value
       #[ "$TRACE" = true ] && set +x
-      exec 1>&6  
-      exec 6>&-      # Restore stdout and close file descriptor #6.
+      exec 1>/dev/null           # Link file descriptor #6 with stdout.
+      exec 2>/dev/null                  
+#      exec 1>&6  
+#      exec 6>&-      # Restore stdout and close file descriptor #6.
       #exec 2> /dev/stderr    
-      exec 2>&7  
-      exec 7>&-
+#      exec 2>&7  
+#      exec 7>&-
       ;;
     esac
   fi 	
@@ -816,11 +820,11 @@ function set_fakeroot(){
     if [ $CLEANUP_SANDBOX_ROOT = yes ]; then
       if [ ${#del_rules_filter} -eq 0 ]; then
          del_rules_filter+=( $SANDBOX_ROOT"/.+" )
-         del_rules_filter+=( POLICY_DELETE )
+         del_rules_actionr+=( POLICY_DELETE )
       fi
       if [ ${#umount_rules_filter} -eq 0 ]; then
          umount_rules_filter+=( $SANDBOX_ROOT"/.+"  )
-         umount_rules_filter+=( POLICY_UMOUNT )
+         umount_rules_action+=( POLICY_UMOUNT )
       fi    
     fi
     mkdir -p "$SANDBOX_ROOT"
@@ -1666,7 +1670,11 @@ if [ ${#FAKEROOT} -gt 1 ] && ! grep -q $FAKEROOT /proc/mounts; then
            (
             echo "chroot $FAKEROOT"
              #bash < /dev/tty > /dev/tty 2>/dev/tty
+               echo "Ready to chroot at ${FAKEROOT}."
+               log stop
+              read -p "Press enter to continue"
              chroot "$FAKEROOT" < /dev/tty > /dev/tty 2>/dev/tty
+             log start
             #chroot $FAKEROOT
             )
         fi
